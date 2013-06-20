@@ -163,7 +163,7 @@ void connection::handle_connect(const boost::system::error_code& err,
 		isOpened=true;
 		start_write_to_server();
     } else if (endpoint_iterator != ba::ip::tcp::resolver::iterator()) {
-		ssocket_.close();
+		//ssocket_.close();
 		ba::ip::tcp::endpoint endpoint = *endpoint_iterator;
 		ssocket_.async_connect(endpoint,
 							   boost::bind(&connection::handle_connect, shared_from_this(),

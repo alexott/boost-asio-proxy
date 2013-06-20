@@ -11,7 +11,8 @@
 
 server::server(const ios_deque& io_services, int port)
 	: io_services_(io_services),
-	  acceptor_(*io_services.front(), ba::ip::tcp::endpoint(ba::ip::tcp::v4(), port)) {
+	  acceptor_(*io_services.front(), ba::ip::tcp::endpoint(ba::ip::tcp::v4(), port)) 
+{
 //	std::cout << "server::server" << std::endl;
 	start_accept();
 }
