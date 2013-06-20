@@ -20,7 +20,9 @@ connection::connection(ba::io_service& io_service) : io_service_(io_service),
 													 resolver_(io_service),
 													 proxy_closed(false),
 													 isPersistent(false),
-													 isOpened(false) {
+													 isOpened(false) 
+{
+	fHeaders.reserve(8192);
 }
 
 /** 
@@ -56,6 +58,7 @@ void connection::handle_browser_read_headers(const bs::error_code& err, size_t l
 								   ba::placeholders::error,
 								   ba::placeholders::bytes_transferred));
 		} else { // analyze headers
+			//std::cout << "fHeaders:\n" << fHeaders << std::endl;
 			std::string::size_type idx=fHeaders.find("\r\n");
 			std::string reqString=fHeaders.substr(0,idx);
 			fHeaders.erase(0,idx+2);
@@ -82,7 +85,8 @@ void connection::handle_browser_read_headers(const bs::error_code& err, size_t l
 			}
 			fReqVersion=fReqVersion.substr(idx+1);
 			
-//			std::cout << fMethod << " " << fURL << " " << fReqVersion << std::endl;
+			// string outputs to console completely, even when using multithreading
+			//std::cout << std::string("\n fMethod: " + fMethod + ", fURL: " + fURL + ", fReqVersion: " + fReqVersion + "\n");
 			// analyze headers, etc
 			parseHeaders(fHeaders,reqHeaders);
 			//

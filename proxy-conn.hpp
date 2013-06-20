@@ -11,7 +11,7 @@
 #define _PROXY_CONN_H 1
 
 #include "common.h"
-#include <map>
+#include <boost/unordered_map.hpp>
 
 class connection : public boost::enable_shared_from_this<connection> {
 public:
@@ -80,7 +80,7 @@ private:
 
 	std::string fReq;
 
-	typedef std::map<std::string,std::string> headersMap;
+	typedef boost::unordered_map<std::string,std::string> headersMap;
 	headersMap reqHeaders, respHeaders;
 
 	void parseHeaders(const std::string& h, headersMap& hm);
