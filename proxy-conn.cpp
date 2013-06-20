@@ -133,7 +133,7 @@ void connection::handle_server_read_headers(const bs::error_code& err, size_t le
 		idx=fHeaders.find("\r\n\r\n");
 		if(idx == std::string::npos) { // going to read rest of headers
 			async_read(ssocket_, ba::buffer(sbuffer), ba::transfer_at_least(1),
-					   boost::bind(&connection::handle_browser_read_headers,
+					   boost::bind(&connection::handle_server_read_headers,
 								   shared_from_this(),
 								   ba::placeholders::error,
 								   ba::placeholders::bytes_transferred));
