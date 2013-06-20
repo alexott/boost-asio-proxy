@@ -24,7 +24,7 @@ connection::connection(ba::io_service& io_service) : io_service_(io_service),
 }
 
 /** 
- * 
+ * Start read data of request from browser
  * 
  */
 void connection::start() {
@@ -33,15 +33,11 @@ void connection::start() {
 	reqHeaders.clear();
 	respHeaders.clear();
 	
-	async_read(bsocket_, ba::buffer(bbuffer), ba::transfer_at_least(1),
-			   boost::bind(&connection::handle_browser_read_headers,
-						   shared_from_this(),
-						   ba::placeholders::error,
-						   ba::placeholders::bytes_transferred));
+	handle_browser_read_headers(bs::error_code(), 0);
 }
 
 /** 
- * 
+ * Read header of HTTP request from browser
  * 
  * @param err 
  * @param len 
@@ -98,7 +94,106 @@ void connection::handle_browser_read_headers(const bs::error_code& err, size_t l
 }
 
 /** 
+ * Start connecting to the web-server, initially to resolve the DNS-name of web-server into the IP address
  * 
+ */
+void connection::start_connect() {
+	std::string server="";
+	std::string port="80";
+	boost::regex rHTTP("http://(.*?)(:(\\d+))?(/.*)");
+	boost::smatch m;
+	
+	if(boost::regex_search(fURL, m, rHTTP, boost::match_extra)) {
+		server=m[1].str();
+		if(m[2].str() != "") {
+			port=m[3].str();
+		}
+		fNewURL=m[4].str();
+	}
+	if(server.empty()) {
+		std::cout << "Can't parse URL "<< std::endl;
+		return;
+	}
+//	std::cout << server << " " << port << " " << fNewURL << std::endl;
+	
+	if(!isOpened || server != fServer || port != fPort) {
+		fServer=server;
+		fPort=port;
+		ba::ip::tcp::resolver::query query(server, port);
+		resolver_.async_resolve(query,
+								boost::bind(&connection::handle_resolve, shared_from_this(),
+											boost::asio::placeholders::error,
+											boost::asio::placeholders::iterator));
+	} else {
+	    start_write_to_server();
+	}
+}
+
+/** 
+ * If successful, after the resolved DNS-names of web-server into the IP addresses, try to connect
+ * 
+ * @param err 
+ * @param endpoint_iterator 
+ */
+void connection::handle_resolve(const boost::system::error_code& err,
+								ba::ip::tcp::resolver::iterator endpoint_iterator) {
+//	std::cout << "handle_resolve. Error: " << err.message() << "\n";
+    if (!err) {
+		const bool first_time = true;
+		handle_connect(boost::system::error_code(), endpoint_iterator, first_time);
+    }else {
+		shutdown();
+	}
+}
+
+/** 
+ * Try to connect to the web-server
+ * 
+ * @param err 
+ * @param endpoint_iterator 
+ */
+void connection::handle_connect(const boost::system::error_code& err,
+								ba::ip::tcp::resolver::iterator endpoint_iterator, const bool first_time) {
+//	std::cout << "handle_connect. Error: " << err << "\n";
+    if (!err && !first_time) {
+		isOpened=true;
+		start_write_to_server();
+    } else if (endpoint_iterator != ba::ip::tcp::resolver::iterator()) {
+		ssocket_.close();
+		ba::ip::tcp::endpoint endpoint = *endpoint_iterator;
+		ssocket_.async_connect(endpoint,
+							   boost::bind(&connection::handle_connect, shared_from_this(),
+										   boost::asio::placeholders::error,
+										   ++endpoint_iterator, false));
+    } else {
+		shutdown();
+	}
+}
+
+/** 
+ * Write data to the web-server
+ * 
+ */
+void connection::start_write_to_server() {
+	fReq=fMethod;
+	fReq+=" ";
+	fReq+=fNewURL;
+	fReq+=" HTTP/";
+	fReq+="1.0";
+//	fReq+=fReqVersion;
+	fReq+="\r\n";
+	fReq+=fHeaders;
+//	std::cout << "Request: " << Req << std::endl;
+	ba::async_write(ssocket_, ba::buffer(fReq),
+					boost::bind(&connection::handle_server_write, shared_from_this(),
+								ba::placeholders::error,
+								ba::placeholders::bytes_transferred));
+
+	fHeaders.clear();
+}
+
+/** 
+ * If successful, read the header that came from a web server
  * 
  * @param err 
  * @param len 
@@ -106,18 +201,14 @@ void connection::handle_browser_read_headers(const bs::error_code& err, size_t l
 void connection::handle_server_write(const bs::error_code& err, size_t len) {
 // 	std::cout << "handle_server_write. Error: " << err << ", len=" << len << std::endl;
 	if(!err) {
-		async_read(ssocket_, ba::buffer(sbuffer), ba::transfer_at_least(1),
-				   boost::bind(&connection::handle_server_read_headers,
-							   shared_from_this(),
-							   ba::placeholders::error,
-							   ba::placeholders::bytes_transferred));
+		handle_server_read_headers(bs::error_code(), 0);
 	}else {
 		shutdown();
 	}
 }
 
 /** 
- * 
+ * Read header of data returned from the web-server
  * 
  * @param err 
  * @param len 
@@ -179,33 +270,8 @@ void connection::handle_server_read_headers(const bs::error_code& err, size_t le
 	}
 }
 
-
 /** 
- * 
- * 
- * @param err 
- * @param len 
- */
-void connection::handle_server_read_body(const bs::error_code& err, size_t len) {
-//   	std::cout << "handle_server_read_body. Error: " << err << " " << err.message()
-//  			  << ", len=" << len << std::endl;
-	if(!err || err == ba::error::eof) {
-		RespReaded+=len;
-// 		std::cout << "len=" << len << " resp_readed=" << RespReaded << " RespLen=" << RespLen<< std::endl;
-		if(err == ba::error::eof)
-			proxy_closed=true;
-		ba::async_write(bsocket_, ba::buffer(sbuffer,len),
-						boost::bind(&connection::handle_browser_write,
-									shared_from_this(),
-									ba::placeholders::error,
-									ba::placeholders::bytes_transferred));
-	} else {
-		shutdown();
-	}
-}
-
-/** 
- * 
+ * Writing data to the browser, are recieved from web-server
  * 
  * @param err 
  * @param len 
@@ -232,113 +298,39 @@ void connection::handle_browser_write(const bs::error_code& err, size_t len) {
 	}
 }
 
+/** 
+ * Reading data from a Web server, for the writing them to the browser
+ * 
+ * @param err 
+ * @param len 
+ */
+void connection::handle_server_read_body(const bs::error_code& err, size_t len) {
+//   	std::cout << "handle_server_read_body. Error: " << err << " " << err.message()
+//  			  << ", len=" << len << std::endl;
+	if(!err || err == ba::error::eof) {
+		RespReaded+=len;
+// 		std::cout << "len=" << len << " resp_readed=" << RespReaded << " RespLen=" << RespLen<< std::endl;
+		if(err == ba::error::eof)
+			proxy_closed=true;
+		ba::async_write(bsocket_, ba::buffer(sbuffer,len),
+						boost::bind(&connection::handle_browser_write,
+									shared_from_this(),
+									ba::placeholders::error,
+									ba::placeholders::bytes_transferred));
+	} else {
+		shutdown();
+	}
+}
+
+/** 
+ * Close both sockets: for browser and web-server
+ * 
+ */
 void connection::shutdown() {
 	ssocket_.close();
 	bsocket_.close();
 }
 
-/** 
- * 
- * 
- */
-void connection::start_connect() {
-	std::string server="";
-	std::string port="80";
-	boost::regex rHTTP("http://(.*?)(:(\\d+))?(/.*)");
-	boost::smatch m;
-	
-	if(boost::regex_search(fURL, m, rHTTP, boost::match_extra)) {
-		server=m[1].str();
-		if(m[2].str() != "") {
-			port=m[3].str();
-		}
-		fNewURL=m[4].str();
-	}
-	if(server.empty()) {
-		std::cout << "Can't parse URL "<< std::endl;
-		return;
-	}
-//	std::cout << server << " " << port << " " << fNewURL << std::endl;
-	
-	if(!isOpened || server != fServer || port != fPort) {
-		fServer=server;
-		fPort=port;
-		ba::ip::tcp::resolver::query query(server, port);
-		resolver_.async_resolve(query,
-								boost::bind(&connection::handle_resolve, shared_from_this(),
-											boost::asio::placeholders::error,
-											boost::asio::placeholders::iterator));
-	} else {
-	    start_write_to_server();
-	}
-}
-
-/** 
- * 
- * 
- */
-void connection::start_write_to_server() {
-	fReq=fMethod;
-	fReq+=" ";
-	fReq+=fNewURL;
-	fReq+=" HTTP/";
-	fReq+="1.0";
-//	fReq+=fReqVersion;
-	fReq+="\r\n";
-	fReq+=fHeaders;
-//	std::cout << "Request: " << Req << std::endl;
-	ba::async_write(ssocket_, ba::buffer(fReq),
-					boost::bind(&connection::handle_server_write, shared_from_this(),
-								ba::placeholders::error,
-								ba::placeholders::bytes_transferred));
-
-	fHeaders.clear();
-}
-
-
-/** 
- * 
- * 
- * @param err 
- * @param endpoint_iterator 
- */
-void connection::handle_resolve(const boost::system::error_code& err,
-								ba::ip::tcp::resolver::iterator endpoint_iterator) {
-//	std::cout << "handle_resolve. Error: " << err.message() << "\n";
-    if (!err) {
-		ba::ip::tcp::endpoint endpoint = *endpoint_iterator;
-		ssocket_.async_connect(endpoint,
-							  boost::bind(&connection::handle_connect, shared_from_this(),
-										  boost::asio::placeholders::error,
-										  ++endpoint_iterator));
-    }else {
-		shutdown();
-	}
-}
-
-/** 
- * 
- * 
- * @param err 
- * @param endpoint_iterator 
- */
-void connection::handle_connect(const boost::system::error_code& err,
-								ba::ip::tcp::resolver::iterator endpoint_iterator) {
-//	std::cout << "handle_connect. Error: " << err << "\n";
-    if (!err) {
-		isOpened=true;
-		start_write_to_server();
-    } else if (endpoint_iterator != ba::ip::tcp::resolver::iterator()) {
-		ssocket_.close();
-		ba::ip::tcp::endpoint endpoint = *endpoint_iterator;
-		ssocket_.async_connect(endpoint,
-							   boost::bind(&connection::handle_connect, shared_from_this(),
-										   boost::asio::placeholders::error,
-										   ++endpoint_iterator));
-    } else {
-		shutdown();
-	}
-}
 
 void connection::parseHeaders(const std::string& h, headersMap& hm) {
 	std::string str(h);

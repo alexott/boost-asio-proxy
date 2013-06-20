@@ -25,22 +25,37 @@ public:
 		return bsocket_;
 	}
 
+	/// Start read data of request from browser
 	void start();
 
 private:
 	connection(ba::io_service& io_service);
-	void handle_browser_write(const bs::error_code& err, size_t len);
+
+	/// Read header of HTTP request from browser
 	void handle_browser_read_headers(const bs::error_code& err, size_t len);
-	void handle_server_write(const bs::error_code& err, size_t len);
-	void handle_server_read_headers(const bs::error_code& err, size_t len);
-	void handle_server_read_body(const bs::error_code& err, size_t len);
+	
+	/// Start connecting to the web-server, initially to resolve the DNS-name of Web server into the IP address
 	void start_connect();
-	void start_write_to_server();
-	void shutdown();
 	void handle_resolve(const boost::system::error_code& err,
 									ba::ip::tcp::resolver::iterator endpoint_iterator);
 	void handle_connect(const boost::system::error_code& err,
-									ba::ip::tcp::resolver::iterator endpoint_iterator);
+									ba::ip::tcp::resolver::iterator endpoint_iterator, const bool first_time);
+
+	/// Write data to the web-server
+	void start_write_to_server();
+	void handle_server_write(const bs::error_code& err, size_t len);
+
+	/// Read header of data returned from the web-server
+	void handle_server_read_headers(const bs::error_code& err, size_t len);
+
+	/// Reading data from a Web server, and writing it to the browser
+	void handle_browser_write(const bs::error_code& err, size_t len);
+	void handle_server_read_body(const bs::error_code& err, size_t len);
+
+	/// Close both sockets: for browser and web-server
+	void shutdown();
+
+
 
 	ba::io_service& io_service_;
 	ba::ip::tcp::socket bsocket_;
