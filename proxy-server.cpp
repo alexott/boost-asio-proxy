@@ -9,10 +9,14 @@
 
 #include "proxy-server.hpp"
 
-server::server(const ios_deque& io_services, int port)
+server::server(const ios_deque& io_services, int port, std::string interface_address)
 	: io_services_(io_services),
-	  acceptor_(*io_services.front(), ba::ip::tcp::endpoint(ba::ip::tcp::v4(), port)) 
+	  endpoint_(interface_address.empty()?	
+				(ba::ip::tcp::endpoint(ba::ip::tcp::v4(), port)): // INADDR_ANY for v4 (in6addr_any if the fix to v6)
+				ba::ip::tcp::endpoint(ba::ip::address().from_string(interface_address), port) ),	// specified ip address
+	  acceptor_(*io_services.front(), endpoint_)	// By default set option to reuse the address (i.e. SO_REUSEADDR)
 {
+	std::cout << endpoint_.address().to_string() << ":" << endpoint_.port() << std::endl;
 //	std::cout << "server::server" << std::endl;
 	start_accept();
 }
