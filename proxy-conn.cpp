@@ -331,8 +331,16 @@ void connection::handle_server_read_body(const bs::error_code& err, size_t len) 
  * 
  */
 void connection::shutdown() {
-	ssocket_.close();
-	bsocket_.close();
+	if (ssocket_.is_open())
+	{
+		ssocket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both);
+		ssocket_.close();
+	}
+	if (bsocket_.is_open())
+	{
+		bsocket_.shutdown(boost::asio::ip::tcp::socket::shutdown_both);
+		bsocket_.close();
+	}
 }
 
 
